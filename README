@@ -1,0 +1,72 @@
+encd -- erlang netchannel daemon
+A brick dumb network transparent IPC system.
+Copyright Matthew Veety, 2021. Under BSD license.
+
+	This is a fairly simple and naive implementation of my netchannel
+experiment. Netchannels are an implementation of something like CSP's
+channels, but network transparent. They work in a similar way: they can
+quickly be created and destroyed, operations block unless there is a
+send and receive happening on both ends of the channel, etc. The user-facing
+architecture is fairly simple: each program connects to their local
+netchannel daemon and uses the netchannel protocol to communicate with it.
+Netchannel daemons are interconnected via some implementation dependent
+protocol, and work together in some way to allocate names and id numbers to
+channels. Id numbers are unique for a group of machines. From there all
+programs connected to their local netchannel daemon are able to communicate
+with all machines connected to your netchannel daemon. Netchannels are
+untyped and able to carry any bit of binary data that can be thrown at it,
+and make no effort to marshal the data two and from your system's native
+representation.
+
+Basic architecture:
+	Machine A         |          network           |         Machine B
+User program <----> ncd <----> interconnect <----> ncd <----> User program
+
+encd:
+	encd is a basic erlang implementation of both the client and server
+ends of the system. The server can be started by calling encd:start() or
+encd:spawn_start(). Nodes are interconnected using the standard erlang
+distribution protocols which handles all communication. The implementation
+includes a simple namespace server running as a erlang process and
+communicated with using the normal methods. The namespace server is in the
+ns module. Do note: only one namespace server may be running for each
+netchannel group, and if it dies all of the encd instances will exit. The
+namespace server is globally registered as encd_ns, and started by
+encd:start or encd:start_spawn if it's unable to be found. Each node's
+encd instance will use the globally registered namespace server, and
+each node's encd process will be registered locally as encd.
+
+The client implementation is in the nchan module. It contains the full
+compliment of netchannel functions:
+	nchan:name(Name) -> {ok, Id} | error
+		Resolves a name to a channel id, returns error if no name is
+		found.
+
+	nchan:connect(Id) -> {ok, Channel} | error
+		Connects to a channel. Returns error if unable to connect.
+
+	nchan:create() -> {ok, Channel, Id}
+		Creates a channel, returning the channel and it's id.
+
+	nchan:send(Channel, Data) -> ok | close
+		Sends data on a channel, blocks until received. Returns ok
+		if successful, close otherwise.
+
+	nchan:recv(Channel) -> {ok, Data} | close
+		Receives from a channel, blocks until sent. Returns ok and
+		the data if successful, close otherwise.
+
+	nchan:disconnect(Channel) -> ok | timeout
+		Disconnects from a channel without closing it.
+
+	nchan:close(Channel) -> close
+		Closes and disconnects from a channel, preventing future use.
+
+	nchan:register(Channel, Name) -> ok | error
+		Registers a name for a channel.
+
+Do note that this implementation has very little by the way of error
+detection or handling, has only been lightly tested, and has been written
+by a very green erlang programmer. This model, though, likely has some
+merit because of it's very simple user facing interface, but your milage may
+vary.
