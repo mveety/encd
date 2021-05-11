@@ -1,4 +1,4 @@
 {'src/*', [debug_info,
 	{i, "src"},
-	{outdir, "./"}]}.
+	{outdir, "ebin"}]}.
 

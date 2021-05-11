@@ -2,16 +2,7 @@
 %% Copyright Matthew Veety, 2021. Under BSD license.
 
 -module(server).
--export([start/1, start/2, stats/1, listen_loop/4, handler/2]).
-
-start(Ns) ->
-    start(Ns, 2426).
-start(Ns, Port) ->
-    {ok, Listen} = gen_tcp:listen(Port, [{ip, {127,0,0,1}}
-					,{active, false}
-					,{keepalive, true}
-					,binary]),
-    listen(Listen, Ns).
+-export([init/3, stats/1, listen_loop/4, handler/2]).
 
 stats(Server) ->
     Server ! {self(), stats},
@@ -34,11 +25,17 @@ killer([H|T]) ->
     exit(H, kill),
     killer(T).
 
-listen(Listen, Ns) ->
+init(Parent, Ns, Port) ->
     Me = self(),
+    register(encd, self()),
+    {ok, Listen} = gen_tcp:listen(Port, [{ip, {127,0,0,1}}
+					,{active, false}
+					,{keepalive, true}
+					,binary]),
     process_flag(trap_exit, true),
     Accepter = spawn_link(fun() -> accepter(Listen, Me) end),
     link(Ns),
+    proc_lib:init_ack(Parent, {ok, self()}),
     listen_loop(Listen, Ns, Accepter, []).
 
 listen_loop(Listen, Ns, Accepter, Pids) ->
@@ -53,6 +50,8 @@ listen_loop(Listen, Ns, Accepter, Pids) ->
 	    stop_server(Listen, Accepter, Pids);
 	{'EXIT', Accepter, _} ->
 	    io:format("listener(~p): accepter died~n",[self()]),
+	    stop_server(Listen, Accepter, Pids);
+	{'EXIT', _, shutdown} ->
 	    stop_server(Listen, Accepter, Pids);
 	{'EXIT', Pid, _} ->
 	    NewPids = lists:delete(Pid, Pids),
@@ -73,8 +72,7 @@ stop_server(Listen, Accepter, Pids) ->
     exit(Accepter, kill),
     io:format("listener(~p): killing ~p pids~n", [self(), length(Pids)]),
     killer(Pids),
-    io:format("done~n", []),
-    exit(ok).
+    io:format("done~n", []).
 
 disconnect(Sock) ->
     %% reply: close

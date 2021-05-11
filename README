@@ -23,18 +23,19 @@ Basic architecture:
 User program <----> ncd <----> interconnect <----> ncd <----> User program
 
 encd:
+Start: application:start(encd).
+Stop: application:stop(encd).
 	encd is a basic erlang implementation of both the client and server
-ends of the system. The server can be started by calling encd:start() or
-encd:spawn_start(). Nodes are interconnected using the standard erlang
+ends of the system. Nodes are interconnected using the standard erlang
 distribution protocols which handles all communication. The implementation
 includes a simple namespace server running as a erlang process and
 communicated with using the normal methods. The namespace server is in the
 ns module. Do note: only one namespace server may be running for each
 netchannel group, and if it dies all of the encd instances will exit. The
 namespace server is globally registered as encd_ns, and started by
-encd:start or encd:start_spawn if it's unable to be found. Each node's
-encd instance will use the globally registered namespace server, and
-each node's encd process will be registered locally as encd.
+application:start(encd) if it's unable to be found. Each node's encd
+instance will use the globally registered namespace server, and each node's
+encd process will be registered locally as encd.
 
 The client implementation is in the nchan module. It contains the full
 compliment of netchannel functions:

@@ -2,7 +2,7 @@
 %% Copyright Matthew Veety, 2021. Under BSD license.
 
 -module(encd).
--export([start/0, spawn_start/0, stats/0, start_or_find_ns/0,
+-export([start/2, stop/1, stats/0, start_or_find_ns/0,
 	 close_all_channels/0]).
 
 start_or_find_ns() ->
@@ -14,27 +14,12 @@ start_or_find_ns() ->
 	Ns -> Ns
     end.
 
-start() ->
-    case whereis(encd) of
-	undefined ->
-	    Ns = start_or_find_ns(),
-	    register(encd, self()),
-	    server:start(Ns),
-	    ok;
-	_ ->
-	    error
-    end.
+start(normal, []) ->
+    Ns = start_or_find_ns(),
+    proc_lib:start_link(server, init, [self(), Ns, 2426]).
 
-spawn_start() ->
-    case whereis(encd) of
-	undefined ->
-	    Ns = start_or_find_ns(),
-	    Server = spawn(fun() -> server:start(Ns) end),
-	    register(encd, Server),
-	    {ok, Server, Ns};
-	_ ->
-	    error
-    end.
+stop([]) ->
+    ok.
 
 ns_stats() ->
     case global:whereis_name(encd_ns) of
