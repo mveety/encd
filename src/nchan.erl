@@ -9,7 +9,8 @@
 main_disconnect(Client) ->
     Client ! {self(), disconnect},
     receive
-	{Client, disconnect} -> ok
+	{Client, disconnect} -> ok;
+	{Client, lost} -> lost
     after
 	30000 ->
 	    timeout
@@ -22,6 +23,8 @@ name(Name, Addr, Port) ->
 	{Client, ok, Id} ->
 	    ok = main_disconnect(Client),
 	    {ok, Id};
+	{Client, lost} ->
+	    error;
 	{Client, error, not_found} ->
 	    ok = main_disconnect(Client),
 	    error
@@ -35,6 +38,8 @@ connect(Id, Addr, Port) ->
     receive
 	{Client, ok} ->
 	    {ok, Client};
+	{Client, lost} ->
+	    error;
 	{Client, error, _} ->
 	    ok = main_disconnect(Client),
 	    error
@@ -46,6 +51,8 @@ create(Addr, Port) ->
     {ok, Client} = client:start(Addr, Port),
     Client ! {self(), create},
     receive
+	{Client, lost} ->
+	    error;
 	{Client, ok, Id} ->
 	    {ok, Client, Id}
     end.
@@ -57,6 +64,8 @@ send(Chan, Data) ->
     receive
 	{Chan, ok} ->
 	    ok;
+	{Chan, lost} ->
+	    lost;
 	{Chan, close} ->
 	    main_disconnect(Chan),
 	    close
@@ -67,6 +76,8 @@ recv(Chan) ->
     receive
 	{Chan, ok, Data} ->
 	    {ok, Data};
+	{Chan, lost} ->
+	    lost;
 	{Chan, close} ->
 	    main_disconnect(Chan),
 	    close
@@ -75,6 +86,8 @@ recv(Chan) ->
 disconnect(Client) ->
     Client ! {self(), disconnect},
     receive
+	{Client, lost} ->
+	    lost;
 	{Client, ok} ->
 	    main_disconnect(Client)
     end.
@@ -82,6 +95,8 @@ disconnect(Client) ->
 close(Chan) ->
     Chan ! {self(), close},
     receive
+	{Chan, lost} ->
+	    lost;
 	{Chan, ok} ->
 	    main_disconnect(Chan),
 	    close
@@ -90,6 +105,8 @@ close(Chan) ->
 register(Chan, Name) ->
     Chan ! {self(), register, Name},
     receive
+	{Chan, lost} ->
+	    lost;
 	{Chan, error} ->
 	    error;
 	{Chan, ok} ->

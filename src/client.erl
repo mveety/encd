@@ -34,6 +34,25 @@ handler(Sock, Starter) ->
 	    exit(disconnect)
     end.
 
+heartbeat(Sock) ->
+    gen_tcp:send(Sock, <<"HB", 0>>),
+    receive
+	{tcp, Sock, <<"HB", 0>>} ->
+	    ok
+    after
+	10000 ->
+	    error
+    end.
+
+server_lost() ->
+    receive
+	{Proc, _, _} ->
+	    Proc ! {self(), lost};
+	{Proc, _} ->
+	    Proc ! {self(), lost}
+    end,
+    exit(disconnect).
+
 main_loop(Sock) ->
     receive
 	{Proc, name, Name} ->
@@ -44,6 +63,14 @@ main_loop(Sock) ->
 	    create(Sock, Proc);
 	{Proc, disconnect} ->
 	    disconnect(Sock, Proc)
+    after
+	10000 ->
+	    case heartbeat(Sock) of
+		ok ->
+		    main_loop(Sock);
+		error ->
+		    server_lost()
+	    end
     end.
 
 name_to_id(Sock, Proc, Name) ->
@@ -103,12 +130,22 @@ chan_loop(Sock) ->
 	    chan_disconnect(Sock, Proc);
 	{Proc, register, Name} ->
 	    chan_register(Sock, Proc, Name)
+    after
+	10000 ->
+	    case heartbeat(Sock) of
+		ok ->
+		    chan_loop(Sock);
+		error ->
+		    server_lost()
+	    end
     end.
 
 send(Sock, Proc, Data) ->
     Len = byte_size(Data),
     Msg = <<"SN", Len:1/little-integer-unit:32, Data:Len/binary>>,
     gen_tcp:send(Sock, Msg),
+    send_loop(Sock, Proc, Data).
+send_loop(Sock, Proc, Data) ->
     receive
 	{tcp, Sock, <<"OK",0>>} ->
 	    Proc ! {self(), ok},
@@ -116,10 +153,20 @@ send(Sock, Proc, Data) ->
 	{tcp, Sock, <<"CL",0>>} ->
 	    Proc ! {self(), close},
 	    main_loop(Sock)
+    after
+	10000 ->
+	    case heartbeat(Sock) of
+		ok ->
+		    send_loop(Sock, Proc, Data);
+		error ->
+		    Proc ! {self(), lost}
+	    end
     end.
 
 recv(Sock, Proc) ->
     gen_tcp:send(Sock, <<"RV",0>>),
+    recv_loop(Sock, Proc).
+recv_loop(Sock, Proc) ->
     receive
 	{tcp, Sock, <<"R0", Dlen:1/little-integer-unit:32, Data:Dlen/binary>>} ->
 	    Proc ! {self(), ok, Data},
@@ -127,6 +174,14 @@ recv(Sock, Proc) ->
 	{tcp, Sock, <<"CL",0>>} ->
 	    Proc ! {self(), close},
 	    main_loop(Sock)
+    after
+	10000 ->
+	    case heartbeat(Sock) of
+		ok ->
+		    recv_loop(Sock, Proc);
+		error ->
+		    Proc ! {self(), lost}
+	    end
     end.
 
 chan_disconnect(Sock, Proc) ->

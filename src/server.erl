@@ -108,6 +108,9 @@ main_loop(Sock, Ns) ->
 	    connect(Sock, Ns, Id);
 	{tcp, Sock, <<"CR",0>>} ->
 	    create(Sock, Ns);
+	{tcp, Sock, <<"HB",0>>} ->
+	    gen_tcp:send(Sock, <<"HB",0>>),
+	    main_loop(Sock, Ns);
 	{tcp, Sock, <<"DS",0>>} ->
 	    disconnect(Sock)
     end.
@@ -146,23 +149,12 @@ close(Sock, Ns) ->
 chan_loop(State = {Sock, Ns, _Id, Chan, _Type}) ->
     receive
 	{tcp, Sock, <<"SN",Len:1/little-integer-unit:32,Data:Len/binary>>} ->
-	    case channel:send(Chan, Data) of
-		ok ->
-		    gen_tcp:send(Sock,<<"OK",0>>),
-		    chan_loop(State);
-		close ->
-		    close(Sock, Ns)
-	    end;
+	    chan_send(start, State, Data, []);
 	{tcp, Sock, <<"RV",0>>} ->
-	    case channel:recv(Chan) of
-		{ok, Data} ->
-		    Dlen = byte_size(Data),
-		    Msg = <<"R0",Dlen:1/little-integer-unit:32,Data:Dlen/binary>>,
-		    gen_tcp:send(Sock, Msg),
-		    chan_loop(State);
-		close ->
-		    close(Sock, Ns)
-	    end;
+	    chan_recv(start, State, []);
+	{tcp, Sock, <<"HB",0>>} ->
+	    gen_tcp:send(Sock, <<"HB",0>>),
+	    chan_loop(State);
 	{tcp, Sock, <<"CL",0>>} ->
 	    channel:close(Chan),
 	    close(Sock, Ns);
@@ -181,3 +173,45 @@ server_register(State = {Sock, Ns, Id, _Chan, server}, Bstring) ->
     ns:add(Ns, Namestring, Id),
     gen_tcp:send(Sock, <<"OK",0>>),
     chan_loop(State).
+
+send_worker(Parent, Chan, Data) ->
+    Status = channel:send(Chan, Data),
+    Parent ! {self(), Status}.
+
+chan_send(start, State = {_Sock, _Ns, _Id, Chan, _Type}, Data, _) ->
+    Me = self(),
+    Worker = spawn(fun() -> send_worker(Me, Chan, Data) end),
+    chan_send(loop, State, [], Worker);
+chan_send(loop, State = {Sock, Ns, _Id, _Chan, _Type}, _, Worker) ->
+    receive
+	{Worker, ok} ->
+	    gen_tcp:send(Sock, <<"OK", 0>>),
+	    chan_loop(State);
+	{Worker, close} ->
+	    close(Sock, Ns);
+	{tcp, Sock, <<"HB",0>>} ->
+	    gen_tcp:send(Sock, <<"HB",0>>),
+	    chan_send(loop, State, [], Worker)
+    end.
+
+recv_worker(Parent, Chan) ->
+    Status = channel:recv(Chan),
+    Parent ! {self(), Status}.
+
+chan_recv(start, State = {_Sock, _Ns, _Id, Chan, _Type}, _) ->
+    Me = self(),
+    Worker = spawn(fun() -> recv_worker(Me, Chan) end),
+    chan_recv(loop, State, Worker);
+chan_recv(loop, State = {Sock, Ns, _Id, _Chan, _Type}, Worker) ->
+    receive
+	{Worker, {ok, Data}} ->
+	    Dlen = byte_size(Data),
+	    Msg = <<"R0",Dlen:1/little-integer-unit:32,Data:Dlen/binary>>,
+	    gen_tcp:send(Sock, Msg),
+	    chan_loop(State);
+	{Worker, close} ->
+	    close(Sock, Ns);
+	{tcp, Sock, <<"HB", 0>>} ->
+	    gen_tcp:send(Sock, <<"HB", 0>>),
+	    chan_recv(loop, State, Worker)
+    end.
